@@ -24,37 +24,36 @@
 #define ADC_MAX               1023.0
 #define SCOPE_HEIGHT          64.0
 #define SCOPE_WIDTH           128
-#define ALPHA                 SCOPE_HEIGHT / ADC_MAX
+#define ALPHA                 SCOPE_HEIGHT / ADC_MAX //conversion
 
-#define TRIG_VALUE      32
-#define TRIG_COND       RISING
+#define TRIG_VALUE      32 //useful to sync signal
 
 //U8G2_SSD1306_128X64_NONAME_F_HW_I2C disp(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 U8G2_SH1106_128X64_NONAME_F_HW_I2C disp(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 //U8X8_SSD1306_128X64_NONAME_HW_I2C disp(/* reset=*/ U8X8_PIN_NONE);
 uint8_t x;
 
-union memBuf {
+union memBuf { // a little trick to reduce memory usage
   uint16_t y[128];
   uint8_t bmp[BMP_BUF];
 } buf;
 
 
-float t = 0.0;
-uint8_t goState;
+//float t = 0.0;
+uint8_t syncState; //for trigger
 
-uint16_t SR_time = 10;
-uint8_t channelScope;
+uint16_t SR_time = 10; // ---> samplerate
+uint8_t channelScope; //There 4 channels
 
 
 void setup() {
 
-  //PORTD pins
+
   pinMode(ENC_BUT, INPUT_PULLUP);
   pinMode(ENC_INT, INPUT_PULLUP);
   pinMode(ENC_DAT, INPUT_PULLUP);
 
-  //PORTB pins
+
   pinMode(MUX_ADDR_A0, OUTPUT);
   pinMode(MUX_ADDR_A1, OUTPUT);
   
@@ -62,6 +61,8 @@ void setup() {
 
 
   //Serial.println("hi");
+  
+  //animated logo display 
   for (uint8_t frame = 0; frame < 12; frame++)
   {
     for (uint16_t j = 0; j < 8; j++)
@@ -78,8 +79,9 @@ void setup() {
 
   delay(3000);
 
-  ADCSRA = (ADCSRA & 0xF8) | 0x02; //little hack to increase sample rate :o
+  ADCSRA = (ADCSRA & 0xF8) | 0x02; //little hack to increase ADC sample rate :o
 
+  //interrupt setup
   attachInterrupt(digitalPinToInterrupt(ENC_INT), encoderInterrupt, FALLING);
   attachInterrupt(digitalPinToInterrupt(ENC_BUT), buttonInterrupt, FALLING);
 
@@ -92,13 +94,13 @@ void setup() {
 
 void encoderInterrupt(void)
 {
-  if(digitalRead(ENC_DAT))
+  if(digitalRead(ENC_DAT)) //clockwise ?
   {
     SR_time++;
     if(SR_time > 2000)
       SR_time = 2000;
   }
-  else
+  else // or counter clockwise
   {
     SR_time--;
     if(SR_time < 1)
@@ -113,6 +115,7 @@ void buttonInterrupt(void)
   {
     channelScope = 0;
   }
+  //switch multiplexer I/O
   digitalWrite(MUX_ADDR_A0, channelScope & 1);
   digitalWrite(MUX_ADDR_A1, channelScope & 2);
 }
@@ -122,13 +125,13 @@ void buttonInterrupt(void)
 
 void loop() {
 
-  for (x = 0; x < SCOPE_WIDTH; x++)
+  for (x = 0; x < SCOPE_WIDTH; x++) //buffer read
   {
     buf.y[x] = analogRead(ANALOG_IN);
     delayMicroseconds(SR_time);
   }
 
-  for (x = 0; x < SCOPE_WIDTH; x++)
+  for (x = 0; x < SCOPE_WIDTH; x++) //conversion and write on graphic buffer
   {
     buf.y[x] *= ALPHA;
     disp.drawPixel(x, buf.y[x]);
@@ -137,35 +140,36 @@ void loop() {
 
 
 
-  //x = 0;
-
+  
+  //update display
   disp.updateDisplay();
   disp.clearBuffer();
+  //display "measured area"
   disp.drawHLine(63, 0, map(SR_time, 1, 2000, 1, 63));
   disp.drawHLine(63-map(SR_time, 1, 2000, 1, 63), 0, map(SR_time, 1, 2000, 1, 63));
-  //disp.clear();
-  goState = 0;
-  while (goState < 3)
+  //disp.clear(); //to long to use this
+  syncState = 0;
+  while (syncState < 3) //sync signal
   {
     buf.y[0] = analogRead(ANALOG_IN) * ALPHA;
 
-
-    if (buf.y[0] > TRIG_VALUE && goState == 0)
+    //Maybe think about an optimisation here ?
+    if (buf.y[0] > TRIG_VALUE && syncState == 0)
     {
-      goState++;
+      syncState++;
     }
-    if (buf.y[0] < TRIG_VALUE && goState == 1)
+    if (buf.y[0] < TRIG_VALUE && syncState == 1)
     {
-      goState++;
+      syncState++;
     }
-    if (buf.y[0] > TRIG_VALUE && goState == 2)
+    if (buf.y[0] > TRIG_VALUE && syncState == 2)
     {
-      goState++;
+      syncState++;
     }
   }
 
 
-  //t+=0.08;
+
 
 
 
